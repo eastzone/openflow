@@ -38,8 +38,7 @@
 #include "udatapath/table.h"
 #include "timeval.h"
 #include "reg_defines_openflow_switch.h"
-#include "nf2.h"
-#include "nf2util.h"
+#include "nf10_reg_acc.h"
 #include "hw_flow.h"
 #include "nf2_drv.h"
 #include "nf2_lib.h"
@@ -51,8 +50,8 @@ static void log_mask(nf2_of_mask_wrap *);
 static void log_mask_raw(nf2_of_mask_wrap *);
 static void log_action(nf2_of_action_wrap *);
 static void log_action_raw(nf2_of_action_wrap *);
-static void log_watchdog_info(struct nf2device *);
 static void nf2_get_all_ports_info_addr(struct nf2_all_ports_info_addr *);
+static int nf2_chk_acc_rdy(void);
 
 static void
 log_entry(nf2_of_entry_wrap *entry)
@@ -332,49 +331,51 @@ log_action_raw(nf2_of_action_wrap *action)
 #endif
 }
 
-void
-nf2_reset_card(struct nf2device *dev)
+static int
+nf2_chk_acc_rdy(void)
 {
-	volatile unsigned int val;
-
-	/* If we are operating on a NetFPGA enabled box, reset the card */
-	readReg(dev, CPCI_REG_CTRL, (void *)&val);
-	val |= 0x100;
-	writeReg(dev, CPCI_REG_CTRL, val);
-	DBG_VERBOSE("Reset the NetFPGA.\n");
-	sleep(2);
+    unsigned int acc_rdy;
+    int i = 0;
+    do {
+        acc_rdy = nf10_reg_rd(OF_ACC_RDY_REG);
+        if (acc_rdy & 0x1) {
+            return 0;
+            }
+            // busy->rdy period should be less than 50ns
+        if (i > 10) {
+            return 1;
+        } else {
+            i++;
+        }
+    } while (true);
 }
 
-void
-nf2_clear_watchdog(struct nf2device *dev)
-{
-	volatile unsigned int enable_status;
+/* TODO ------FIND OUT HOW TO RESET THE NF10 CARD------ */
 
-#ifndef NF2_WATCHDOG
-	return;
-#endif
-	log_watchdog_info(dev);
-
-	readReg(dev, WDT_ENABLE_FLG_REG, (void *)&enable_status);
-	enable_status &= 0x1;
-
-	if (enable_status == WATCHDOG_DISABLE) {
-		enable_status = WATCHDOG_ENABLE;
-		writeReg(dev, WDT_ENABLE_FLG_REG, enable_status);
-	}
-}
+//void
+//nf2_reset_card(struct nf2device *dev)
+//{
+//	volatile unsigned int val;
+//
+//	/* If we are operating on a NetFPGA enabled box, reset the card */
+//	readReg(dev, CPCI_REG_CTRL, (void *)&val);
+//	val |= 0x100;
+//	writeReg(dev, CPCI_REG_CTRL, val);
+//	DBG_VERBOSE("Reset the NetFPGA.\n");
+//	sleep(2);
+//}
 
 /* Write a wildcard entry to the specified device and row. The row consists of
  * the actual entry, its mask that specifies wildcards, as well as the action(s)
  * to be taken if the row is matched
  */
 int
-nf2_write_of_wildcard(struct nf2device *dev, int row,
+nf2_write_of_wildcard(int row,
 		      nf2_of_entry_wrap *entry, nf2_of_mask_wrap *mask,
 		      nf2_of_action_wrap *action)
 {
-	int i;
 	unsigned int val;
+	int i;
 
 	DBG_VERBOSE("** Begin wildcard entry write to row: %i\n", row);
 	log_entry(entry);
@@ -384,35 +385,34 @@ nf2_write_of_wildcard(struct nf2device *dev, int row,
 	log_mask_raw(mask);
 	log_action_raw(action);
 
+	if (nf2_chk_acc_rdy()) {
+		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		return 1;
+	}
+
+        nf10_reg_wr(OF_BASE_ADDR_REG, WILDCARD_BASE + row);
+
 	for (i = 0; i < NF2_OF_ENTRY_WORD_LEN; ++i) {
-		writeReg(dev,
-			       OPENFLOW_WILDCARD_LOOKUP_CMP_0_REG
-			       + (4 * i), entry->raw[i]);
+            nf10_reg_wr(OF_LOOKUP_CMP_BASE_REG + i,
+			       entry->raw[i]);
 	}
 
 	for (i = 0; i < NF2_OF_MASK_WORD_LEN; ++i) {
-		writeReg(dev,
-			       OPENFLOW_WILDCARD_LOOKUP_CMP_MASK_0_REG
-			       + (4 * i), mask->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_CMP_MASK_BASE_REG + i,
+			       mask->raw[i]);
 	}
 
 	for (i = 0; i < NF2_OF_ACTION_WORD_LEN; ++i) {
-		writeReg(dev,
-			       OPENFLOW_WILDCARD_LOOKUP_ACTION_0_REG
-			       + (4 * i), action->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_ACTION_BASE_REG + i,
+			       action->raw[i]);
 	}
 
 	// Reset the stats for the row
 	val = 0;
-	writeReg(dev,
-		       OPENFLOW_WILDCARD_LOOKUP_BYTES_HIT_0_REG + (4 * row),
-		       val);
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_PKTS_HIT_0_REG + (4 * row),
-		       val);
-	writeReg(dev,
-		       OPENFLOW_WILDCARD_LOOKUP_LAST_SEEN_TS_0_REG + (4 * row),
-		       val);
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_WRITE_ADDR_REG, row);
+	nf10_reg_wr(OF_STATS_BASE_REG, val);
+	nf10_reg_wr(OF_STATS_BASE_REG+1, val);
+
+	nf10_reg_wr(OF_WRITE_ORDER_REG, 1); // Write whatever the value
 
 	DBG_VERBOSE("** End wildcard entry write to row: %i time(msec): %llu\n",
 		    row, time_msec());
@@ -421,60 +421,57 @@ nf2_write_of_wildcard(struct nf2device *dev, int row,
 }
 
 int
-nf2_write_of_exact(struct nf2device *dev, int row,
+nf2_write_of_exact(int row,
 		   nf2_of_entry_wrap *entry, nf2_of_action_wrap *action)
 {
-	int i;
 	unsigned int val;
-	unsigned int index = row << 7;
+	int i;
 
-	DBG_VERBOSE("** Begin exact match entry write to row: %i\n", row);
+	DBG_VERBOSE("** Begin exact entry write to row: %i\n", row);
 	log_entry(entry);
 	log_action(action);
 	log_entry_raw(entry);
 	log_action_raw(action);
 
+	if (nf2_chk_acc_rdy()) {
+		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		return 1;
+	}
+
+        nf10_reg_wr(OF_BASE_ADDR_REG, EXACT_BASE + row);
+
 	for (i = 0; i < NF2_OF_ENTRY_WORD_LEN; ++i) {
-		writeReg(dev, SRAM_BASE_ADDR + index
-			       + (4 * i), entry->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_CMP_BASE_REG + i,
+			       entry->raw[i]);
 	}
 
-	// blank out the counters
-	val = 0;
-	for (i = 0; i < NF2_OF_EXACT_COUNTERS_WORD_LEN; ++i) {
-		writeReg(dev, SRAM_BASE_ADDR + index
-			       + sizeof(nf2_of_entry_wrap)
-			       + (4 * i), val);
-	}
-
-	// write the actions
 	for (i = 0; i < NF2_OF_ACTION_WORD_LEN; ++i) {
-		writeReg(dev, SRAM_BASE_ADDR + index
-			       + sizeof(nf2_of_entry_wrap)
-			       + sizeof(nf2_of_exact_counters_wrap)
-			       + (4 * i), action->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_ACTION_BASE_REG + i,
+			       action->raw[i]);
 	}
 
-	DBG_VERBOSE
-	    ("** End exact match entry write to row: %i time(msec): %llu\n",
-	     row, time_msec());
+	// Reset the stats for the row
+	val = 0;
+	nf10_reg_wr(OF_STATS_BASE_REG, val);
+	nf10_reg_wr(OF_STATS_BASE_REG+1, val);
+
+	nf10_reg_wr(OF_WRITE_ORDER_REG, 1); // Write whatever the value
+
+	DBG_VERBOSE("** End exact entry write to row: %i time(msec): %llu\n",
+		    row, time_msec());
 
 	return 0;
 }
 
 /* Write wildcard action(s) to the specified device and row. */
 int
-nf2_modify_write_of_wildcard(struct nf2device *dev, int row,
+nf2_modify_write_of_wildcard(int row,
 			     nf2_of_entry_wrap *entry, nf2_of_mask_wrap *mask,
 			     nf2_of_action_wrap *action)
 {
 	int i;
-	unsigned int bytes_reg_val;
-	unsigned int pkts_reg_val;
-	unsigned int last_reg_val;
 
-	DBG_VERBOSE("** Begin wildcard modified action write to row: %i\n",
-		    row);
+	DBG_VERBOSE("** Begin wildcard entry modify to row: %i\n", row);
 	log_entry(entry);
 	log_mask(mask);
 	log_action(action);
@@ -482,176 +479,113 @@ nf2_modify_write_of_wildcard(struct nf2device *dev, int row,
 	log_mask_raw(mask);
 	log_action_raw(action);
 
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_READ_ADDR_REG, row);
-	readReg(dev,
-		      OPENFLOW_WILDCARD_LOOKUP_BYTES_HIT_0_REG + (4 * row),
-		      &bytes_reg_val);
-	readReg(dev,
-		      OPENFLOW_WILDCARD_LOOKUP_PKTS_HIT_0_REG + (4 * row),
-		      &pkts_reg_val);
-	readReg(dev,
-		      OPENFLOW_WILDCARD_LOOKUP_LAST_SEEN_TS_0_REG + (4 * row),
-		      &last_reg_val);
+	if (nf2_chk_acc_rdy()) {
+		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		return 1;
+	}
+
+        nf10_reg_wr(OF_BASE_ADDR_REG, WILDCARD_BASE + row);
 
 	for (i = 0; i < NF2_OF_ENTRY_WORD_LEN; ++i) {
-		writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_CMP_0_REG
-			       + (4 * i), entry->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_CMP_BASE_REG + i,
+			       entry->raw[i]);
 	}
 
 	for (i = 0; i < NF2_OF_MASK_WORD_LEN; ++i) {
-		writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_CMP_MASK_0_REG
-			       + (4 * i), mask->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_CMP_MASK_BASE_REG + i,
+			       mask->raw[i]);
 	}
 
 	for (i = 0; i < NF2_OF_ACTION_WORD_LEN; ++i) {
-		writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_ACTION_0_REG
-			       + (4 * i), action->raw[i]);
+		nf10_reg_wr(OF_LOOKUP_ACTION_BASE_REG + i,
+			       action->raw[i]);
 	}
 
-	writeReg(dev,
-		       OPENFLOW_WILDCARD_LOOKUP_BYTES_HIT_0_REG + (4 * row),
-		       bytes_reg_val);
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_PKTS_HIT_0_REG + (4 * row),
-		       pkts_reg_val);
-	writeReg(dev,
-		       OPENFLOW_WILDCARD_LOOKUP_LAST_SEEN_TS_0_REG + (4 * row),
-		       last_reg_val);
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_WRITE_ADDR_REG, row);
+	nf10_reg_wr(OF_MOD_WRITE_ORDER_REG, 1); // Write whatever the value
 
-	DBG_VERBOSE
-	    ("** End wildcard modified action write to row: %i time(msec): %llu\n",
-	     row, time_msec());
-	DBG_VERBOSE("   Bytes hit count: %d\n", bytes_reg_val);
-	DBG_VERBOSE("   Pkts  hit count: %d\n", pkts_reg_val);
-	DBG_VERBOSE("   Last seen      : %d\n", last_reg_val);
+	DBG_VERBOSE("** End wildcard entry modify to row: %i time(msec): %llu\n",
+		    row, time_msec());
 
 	return 0;
 }
 
 int
-nf2_modify_write_of_exact(struct nf2device *dev, int row,
-			  nf2_of_action_wrap *action)
+nf2_modify_write_of_exact(int row,
+			  nf2_of_entry_wrap *entry, nf2_of_action_wrap *action)
 {
 	int i;
-	unsigned int index = row << 7;
 
-	DBG_VERBOSE("** Begin exact match modified action write to row: %i\n",
-		    row);
+	DBG_VERBOSE("** Begin exact entry modify to row: %i\n", row);
+	log_entry(entry);
 	log_action(action);
+	log_entry_raw(entry);
 	log_action_raw(action);
 
-	// write the actions
-	for (i = 0; i < NF2_OF_ACTION_WORD_LEN; ++i) {
-		writeReg(dev, SRAM_BASE_ADDR + index
-			       + sizeof(nf2_of_entry_wrap)
-			       + sizeof(nf2_of_exact_counters_wrap)
-			       + (4 * i), action->raw[i]);
+	if (nf2_chk_acc_rdy()) {
+		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		return 1;
 	}
 
-	DBG_VERBOSE
-	    ("** End exact match modified action write to row: %i time(msec): %llu\n",
-	     row, time_msec());
+        nf10_reg_wr(OF_BASE_ADDR_REG, EXACT_BASE + row);
+
+	for (i = 0; i < NF2_OF_ENTRY_WORD_LEN; ++i) {
+		nf10_reg_wr(OF_LOOKUP_CMP_BASE_REG + i,
+			       entry->raw[i]);
+	}
+
+	for (i = 0; i < NF2_OF_ACTION_WORD_LEN; ++i) {
+		nf10_reg_wr(OF_LOOKUP_ACTION_BASE_REG + i,
+			       action->raw[i]);
+	}
+
+	nf10_reg_wr(OF_MOD_WRITE_ORDER_REG, 1); // Write whatever the value
+
+	DBG_VERBOSE("** End exact entry modify to row: %i time(msec): %llu\n",
+		    row, time_msec());
 
 	return 0;
 }
 
-unsigned int
-nf2_get_exact_packet_count(struct nf2device *dev, int row)
+int
+nf2_get_raw_stats(int row, int is_exact, nf2_of_counters_wrap *counters)
 {
-	unsigned int val = 0;
-	unsigned int index = 0;
+        unsigned int val;
 
-	/* TODO: Need to scrape data from all 4 registers
-	 * in the case of a wildcarded source port and
-	 * forward all action type
-	 */
-	nf2_of_exact_counters_wrap counters;
-	memset(&counters, 0, sizeof(nf2_of_exact_counters_wrap));
+	DBG_VERBOSE("** Begin getting statistics from row: %i\n", row);
 
-	// build the index to our counters
-	index = row << 7;
+	if (nf2_chk_acc_rdy()) {
+		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		return 1;
+	}
 
-	// Read the first word into our struct, to not disturb the byte count
-	readReg(dev,
-		      SRAM_BASE_ADDR + index + sizeof(nf2_of_entry_wrap),
-		      &counters.raw[0]);
-	val = counters.counters.pkt_count;
+        if (is_exact) {
+                nf10_reg_wr(OF_BASE_ADDR_REG, EXACT_BASE + row);
+        } else {
+                nf10_reg_wr(OF_BASE_ADDR_REG, WILDCARD_BASE + row);
+        }
+	nf10_reg_wr(OF_READ_ORDER_REG, 1); // Write whatever the value
 
-	DBG_VERBOSE
-	    ("** Exact match packet count(delta) row: %i count: %i time(msec): %llu\n",
-	     row, val, time_msec());
+	if (nf2_chk_acc_rdy()) {
+		DBG_ERROR("Read timeout: NetFPGA is busy\n");
+		return 1;
+	}
 
-	return val;
-}
+        val = nf10_reg_rd(OF_STATS_BASE_REG);
+        counters->raw[0] = val;
+        val = nf10_reg_rd(OF_STATS_BASE_REG+1);
+        counters->raw[1] = val;
 
-unsigned int
-nf2_get_exact_byte_count(struct nf2device *dev, int row)
-{
-	unsigned int val = 0;
-	unsigned int index = 0;
-
-	/* TODO: Need to scrape data from all 4 registers
-	 * in the case of a wildcarded source port and
-	 * forward all action type
-	 */
-	nf2_of_exact_counters_wrap counters;
-	memset(&counters, 0, sizeof(nf2_of_exact_counters_wrap));
-
-	// build the index to our counters
-	index = row << 7;
-
-	// Read the second word into our struct, to not disturb the packet count
-	readReg(dev, SRAM_BASE_ADDR + index +
-		      sizeof(nf2_of_entry_wrap) + 4, &counters.raw[1]);
-	val = counters.counters.byte_count;
-
-	DBG_VERBOSE
-	    ("** Exact match byte count(delta) row: %i count: %i time(msec): %llu\n",
-	     row, val, time_msec());
-
-	return val;
-}
-
-unsigned int
-nf2_get_wildcard_packet_count(struct nf2device *dev, int row)
-{
-	unsigned int val = 0;
-
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_READ_ADDR_REG, row);
-	readReg(dev, OPENFLOW_WILDCARD_LOOKUP_PKTS_HIT_0_REG
-		      + (4 * row), &val);
-
-	DBG_VERBOSE
-	    ("** Wildcard packet count(sum) row: %i count: %i time(msec): %llu\n",
-	     row, val, time_msec());
-
-	return val;
-}
-
-unsigned int
-nf2_get_wildcard_byte_count(struct nf2device *dev, int row)
-{
-	unsigned int val = 0;
-
-	writeReg(dev, OPENFLOW_WILDCARD_LOOKUP_READ_ADDR_REG, row);
-	readReg(dev, OPENFLOW_WILDCARD_LOOKUP_BYTES_HIT_0_REG
-		      + (4 * row), &val);
-
-	DBG_VERBOSE
-	    ("** Wildcard byte count(sum) row: %i count: %i time(msec): %llu\n",
-	     row, val, time_msec());
-
-	return val;
+	return 0;
 }
 
 unsigned long int
-nf2_get_matched_count(struct nf2device *dev)
+nf2_get_matched_count(void)
 {
 	unsigned int val_wild = 0;
 	unsigned int val_exact = 0;
 
-	readReg(dev, OPENFLOW_LOOKUP_WILDCARD_HITS_REG, &val_wild);
-	readReg(dev, OPENFLOW_LOOKUP_EXACT_HITS_REG, &val_exact);
+	val_wild = nf10_reg_rd(OF_WILDCARD_HITS_REG);
+	val_exact = nf10_reg_rd(OF_EXACT_HITS_REG);
 
 	DBG_VERBOSE("** Wildcard Matched count: %i time(msec): %llu\n",
 		    val_wild, time_msec());
@@ -662,13 +596,13 @@ nf2_get_matched_count(struct nf2device *dev)
 }
 
 unsigned long int
-nf2_get_missed_count(struct nf2device *dev)
+nf2_get_missed_count(void)
 {
 	unsigned int val_wild = 0;
 	unsigned int val_exact = 0;
 
-	readReg(dev, OPENFLOW_LOOKUP_WILDCARD_MISSES_REG, &val_wild);
-	readReg(dev, OPENFLOW_LOOKUP_EXACT_MISSES_REG, &val_exact);
+	val_wild = nf10_reg_rd(OF_WILDCARD_MISSES_REG);
+	val_exact = nf10_reg_rd(OF_EXACT_MISSES_REG);
 
 	DBG_VERBOSE("** Wildcard Missed count: %i time(msec): %llu\n",
 		    val_wild, time_msec());
@@ -678,8 +612,9 @@ nf2_get_missed_count(struct nf2device *dev)
 	return ((unsigned long int)(val_wild + val_exact));
 }
 
+/*
 static void
-log_watchdog_info(struct nf2device *dev)
+log_watchdog_info()
 {
 #ifdef HWTABLE_NO_DEBUG
         return;
@@ -687,7 +622,7 @@ log_watchdog_info(struct nf2device *dev)
 #define CLK_CYCLE 8
 	unsigned int nf2wdtinfo;
 	unsigned int elapsed_time;
-	readReg(dev, WDT_COUNTER_REG, &nf2wdtinfo);
+	nf10_reg_rd(OF_WDT_COUNTER_REG, &nf2wdtinfo);
 	elapsed_time = nf2wdtinfo * CLK_CYCLE / 1000000;
 	DBG_VVERB
 	    ("%u (msec) passed since the watchdog counter has been cleared last time\n",
@@ -695,10 +630,14 @@ log_watchdog_info(struct nf2device *dev)
 	DBG_VVERB("NetFPGA WDT now clearing\n");
 #endif
 }
+*/
 
+
+/* TODO: Check if MAC stats available */
 static void
 nf2_get_all_ports_info_addr(struct nf2_all_ports_info_addr *nf2addr)
 {
+/*
 	nf2addr->rx_q_num_pkts_stored_reg[0]
 		= MAC_GRP_0_RX_QUEUE_NUM_PKTS_STORED_REG;
 	nf2addr->rx_q_num_pkts_dropped_full_reg[0]
@@ -798,10 +737,11 @@ nf2_get_all_ports_info_addr(struct nf2_all_ports_info_addr *nf2addr)
 		= MAC_GRP_3_TX_QUEUE_NUM_BYTES_PUSHED_REG;
 	nf2addr->tx_q_num_pkts_enqueued_reg[3]
 		= MAC_GRP_3_TX_QUEUE_NUM_PKTS_ENQUEUED_REG;
+*/
 }
 
 int
-nf2_get_port_info(struct nf2device *dev, int nf_port,
+nf2_get_port_info(int nf_port,
                   struct nf2_port_info *nf2portinfo)
 {
 	struct nf2_all_ports_info_addr *nf2addr;
@@ -818,30 +758,30 @@ nf2_get_port_info(struct nf2device *dev, int nf_port,
 	}
 	nf2_get_all_ports_info_addr(nf2addr);
 
-	readReg(dev, nf2addr->rx_q_num_pkts_stored_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_pkts_stored));
-	readReg(dev, nf2addr->rx_q_num_pkts_dropped_full_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_pkts_dropped_full));
-	readReg(dev, nf2addr->rx_q_num_pkts_dropped_bad_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_pkts_dropped_bad));
-	readReg(dev, nf2addr->rx_q_num_words_pushed_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_words_pushed));
-	readReg(dev, nf2addr->rx_q_num_bytes_pushed_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_bytes_pushed));
-	readReg(dev, nf2addr->rx_q_num_pkts_dequeued_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_pkts_dequeued));
-	readReg(dev, nf2addr->rx_q_num_pkts_in_queue_reg[nf_port],
-		      &(nf2portinfo->rx_q_num_pkts_in_queue));
-	readReg(dev, nf2addr->tx_q_num_pkts_in_queue_reg[nf_port],
-		      &(nf2portinfo->tx_q_num_pkts_in_queue));
-	readReg(dev, nf2addr->tx_q_num_pkts_sent_reg[nf_port],
-		      &(nf2portinfo->tx_q_num_pkts_sent));
-	readReg(dev, nf2addr->tx_q_num_words_pushed_reg[nf_port],
-		      &(nf2portinfo->tx_q_num_words_pushed));
-	readReg(dev, nf2addr->tx_q_num_bytes_pushed_reg[nf_port],
-		      &(nf2portinfo->tx_q_num_bytes_pushed));
-	readReg(dev, nf2addr->tx_q_num_pkts_enqueued_reg[nf_port],
-		      &(nf2portinfo->tx_q_num_pkts_enqueued));
+	nf2portinfo->rx_q_num_pkts_stored
+	     = nf10_reg_rd(nf2addr->rx_q_num_pkts_stored_reg[nf_port]);
+	nf2portinfo->rx_q_num_pkts_dropped_full
+	     = nf10_reg_rd(nf2addr->rx_q_num_pkts_dropped_full_reg[nf_port]);
+	nf2portinfo->rx_q_num_pkts_dropped_bad
+	     = nf10_reg_rd(nf2addr->rx_q_num_pkts_dropped_bad_reg[nf_port]);
+	nf2portinfo->rx_q_num_words_pushed
+	     = nf10_reg_rd(nf2addr->rx_q_num_words_pushed_reg[nf_port]);
+	nf2portinfo->rx_q_num_bytes_pushed
+	     = nf10_reg_rd(nf2addr->rx_q_num_bytes_pushed_reg[nf_port]);
+	nf2portinfo->rx_q_num_pkts_dequeued
+	     = nf10_reg_rd(nf2addr->rx_q_num_pkts_dequeued_reg[nf_port]);
+	nf2portinfo->rx_q_num_pkts_in_queue
+	     = nf10_reg_rd(nf2addr->rx_q_num_pkts_in_queue_reg[nf_port]);
+	nf2portinfo->tx_q_num_pkts_in_queue
+	     = nf10_reg_rd(nf2addr->tx_q_num_pkts_in_queue_reg[nf_port]);
+	nf2portinfo->tx_q_num_pkts_sent
+	     = nf10_reg_rd(nf2addr->tx_q_num_pkts_sent_reg[nf_port]);
+	nf2portinfo->tx_q_num_words_pushed
+	     = nf10_reg_rd(nf2addr->tx_q_num_words_pushed_reg[nf_port]);
+	nf2portinfo->tx_q_num_bytes_pushed
+	     = nf10_reg_rd(nf2addr->tx_q_num_bytes_pushed_reg[nf_port]);
+	nf2portinfo->tx_q_num_pkts_enqueued
+	     = nf10_reg_rd(nf2addr->tx_q_num_pkts_enqueued_reg[nf_port]);
 	free(nf2addr);
 	return 0;
 }

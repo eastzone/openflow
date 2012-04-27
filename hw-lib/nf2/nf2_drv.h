@@ -85,17 +85,17 @@ typedef union nf2_of_action_wrap {
 	uint32_t raw[10];
 } nf2_of_action_wrap;
 
-struct nf2_of_exact_counters {
+struct nf2_of_counters {
 	uint32_t pkt_count:25;
 	uint8_t last_seen:7;
 	uint32_t byte_count;
 };
 
-#define NF2_OF_EXACT_COUNTERS_WORD_LEN	2
-typedef union nf2_of_exact_counters_wrap {
-	struct nf2_of_exact_counters counters;
-	uint32_t raw[NF2_OF_EXACT_COUNTERS_WORD_LEN];
-} nf2_of_exact_counters_wrap;
+#define NF2_OF_COUNTERS_WORD_LEN	2
+typedef union nf2_of_counters_wrap {
+	struct nf2_of_counters counters;
+	uint32_t raw[NF2_OF_COUNTERS_WORD_LEN];
+} nf2_of_counters_wrap;
 
 #define NF2_PORT_NUM 4
 struct nf2_all_ports_info_addr {
@@ -130,21 +130,17 @@ struct nf2_port_info {
 
 #pragma pack(pop)		/* XXX: Restore original alignment from stack */
 
-void nf2_reset_card(struct nf2device *);
-void nf2_clear_watchdog(struct nf2device *);
-int nf2_write_of_wildcard(struct nf2device *, int, nf2_of_entry_wrap *,
+void nf2_reset_card(void);
+int nf2_write_of_wildcard(int, nf2_of_entry_wrap *,
 			  nf2_of_mask_wrap *, nf2_of_action_wrap *);
-int nf2_write_of_exact(struct nf2device *, int, nf2_of_entry_wrap *,
+int nf2_write_of_exact(int, nf2_of_entry_wrap *,
 		       nf2_of_action_wrap *);
-int nf2_modify_write_of_wildcard(struct nf2device *, int, nf2_of_entry_wrap *,
+int nf2_modify_write_of_wildcard(int, nf2_of_entry_wrap *,
 				 nf2_of_mask_wrap *, nf2_of_action_wrap *);
-int nf2_modify_write_of_exact(struct nf2device *, int, nf2_of_action_wrap *);
-unsigned int nf2_get_exact_packet_count(struct nf2device *, int);
-unsigned int nf2_get_exact_byte_count(struct nf2device *, int);
-unsigned int nf2_get_wildcard_packet_count(struct nf2device *, int);
-unsigned int nf2_get_wildcard_byte_count(struct nf2device *, int);
-unsigned long int nf2_get_matched_count(struct nf2device *);
-unsigned long int nf2_get_missed_count(struct nf2device *);
-int nf2_get_port_info(struct nf2device *, int, struct nf2_port_info *);
+int nf2_modify_write_of_exact(int, nf2_of_entry_wrap *, nf2_of_action_wrap *);
+int nf2_get_raw_stats(int, int, nf2_of_counters_wrap *);
+unsigned long int nf2_get_matched_count(void);
+unsigned long int nf2_get_missed_count(void);
+int nf2_get_port_info(int, struct nf2_port_info *);
 
 #endif

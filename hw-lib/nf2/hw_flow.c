@@ -37,7 +37,6 @@
 #include "udatapath/switch-flow.h"
 #include "udatapath/datapath.h"
 #include "reg_defines_openflow_switch.h"
-#include "nf2util.h"
 #include "hw_flow.h"
 #include "nf2_drv.h"
 #include "nf2_lib.h"
@@ -195,17 +194,13 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 		   const struct sw_flow_key *key, uint16_t out_port,
 		   uint16_t priority, int strict, int keep_flow)
 {
-	struct nf2device *dev;
 	struct nf2_flowtable *nf2flowtab = (struct nf2_flowtable *)flowtab;
 	struct sw_flow *flow, *n;
 	struct nf2_flow *nf2flow;
+	struct nf2_of_stats *stats;
 	unsigned int count = 0;
 	struct list deleted;
 	list_init(&deleted);
-
-	dev = nf2_get_net_device();
-	if (dev == NULL)
-		return 0;
 
 	LIST_FOR_EACH_SAFE (flow, n, struct sw_flow, node, &nf2flowtab->flows) {
 		if (flow_matches_desc(&flow->key, key, strict)
@@ -214,11 +209,10 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 			nf2flow = flow->private;
 
 			if (nf2flow != NULL) {
+				stats = nf2_get_stats(nf2flow);
 				flow->packet_count
-					+= nf2_get_packet_count(dev,
-								nf2flow);
-				flow->byte_count += nf2_get_byte_count(dev,
-								       nf2flow);
+					+= stats->pkt_count;
+				flow->byte_count += stats->byte_count;
 			}
 			count += do_uninstall(flow, &deleted);
 			if (keep_flow == KEEP_FLOW) {
@@ -228,8 +222,6 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 		}
 	}
 	nf2flowtab->num_flows -= count;
-
-	nf2_free_net_device(dev);
 
 	if (keep_flow == DELETE_FLOW) {
 		/* Notify DP of deleted flows and delete the flow */
@@ -247,28 +239,23 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 static void
 nf2_flow_timeout(struct sw_table *flowtab, struct list *deleted)
 {
-	struct nf2device *dev;
 	struct nf2_flowtable *nf2flowtab = (struct nf2_flowtable *)flowtab;
 	struct sw_flow *flow, *n;
 	struct nf2_flow *nf2flow;
+	struct nf2_of_stats *stats;
 	int num_uninst_flows = 0;
 	uint64_t num_forw_packets = 0;
 	uint64_t now = time_msec();
-
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		DBG_ERROR("Could not open NetFPGA device\n");
-		return;
-	}
 
 	/* LOCK; */
 	/* FIXME */
 	LIST_FOR_EACH_SAFE (flow, n, struct sw_flow, node, &nf2flowtab->flows) {
 		nf2flow = flow->private;
 		if (nf2flow != NULL) {
+                        stats = nf2_get_stats(nf2flow);
 			num_forw_packets = flow->packet_count
-				+ nf2_get_packet_count(dev, nf2flow);
-			flow->byte_count += nf2_get_byte_count(dev, nf2flow);
+				+ stats->pkt_count;
+			flow->byte_count += stats->byte_count;
 		}
 		if (num_forw_packets > flow->packet_count) {
 			flow->packet_count = num_forw_packets;
@@ -282,9 +269,6 @@ nf2_flow_timeout(struct sw_table *flowtab, struct list *deleted)
 	}
 
 	/* UNLOCK; */
-
-	nf2_clear_watchdog(dev);
-	nf2_free_net_device(dev);
 
 	nf2flowtab->num_flows -= num_uninst_flows;
 }
@@ -352,18 +336,11 @@ static void
 nf2_get_flowstats(struct sw_table *flowtab, struct sw_table_stats *stats)
 {
 	struct nf2_flowtable *nf2flowtab = (struct nf2_flowtable *)flowtab;
-	struct nf2device *dev;
 	unsigned long int num_matched = 0;
 	unsigned long int num_missed = 0;
 
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		DBG_VERBOSE("Could not open NetFPGA device\n");
-	} else {
-		num_matched = nf2_get_matched_count(dev);
-		num_missed = nf2_get_missed_count(dev);
-		nf2_free_net_device(dev);
-	}
+	num_matched = nf2_get_matched_count();
+	num_missed = nf2_get_missed_count();
 
 	stats->name = "nf2";
 	stats->wildcards = OPENFLOW_WILDCARD_TABLE_SIZE
@@ -379,22 +356,18 @@ nf2_get_portstats(of_hw_driver_t *hw_drv, int of_port,
 			struct ofp_port_stats *stats)
 {
 	int nf2_port;
-	struct nf2_port_info *nf2portinfo;
-	struct nf2device *dev;
 
+/* NetFPGA-10G port information NOT available for now
+	struct nf2_port_info *nf2portinfo;
+*/
 	if ((of_port > NF2_PORT_NUM) || (of_port <= 0)) {
 		return 1;
 	}
 	nf2_port = of_port - 1;
 
+/* NetFPGA-10G port information NOT available for now
 	nf2portinfo = calloc(1, sizeof(struct nf2_port_info));
 	if (nf2portinfo == NULL) {
-		return 1;
-	}
-
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		free(nf2portinfo);
 		return 1;
 	}
 
@@ -410,6 +383,12 @@ nf2_get_portstats(of_hw_driver_t *hw_drv, int of_port,
 	stats->rx_bytes = (uint64_t)(nf2portinfo->rx_q_num_bytes_pushed);
 	stats->tx_packets = (uint64_t)(nf2portinfo->tx_q_num_pkts_sent);
 	stats->tx_bytes = (uint64_t)(nf2portinfo->tx_q_num_bytes_pushed);
+*/
+        stats->rx_packets = -1;
+        stats->rx_dropped = -1;
+        stats->rx_bytes = -1;
+        stats->tx_packets = -1;
+        stats->tx_bytes = -1;
 
 	/* Not supported */
 	stats->tx_dropped = -1;
@@ -420,8 +399,9 @@ nf2_get_portstats(of_hw_driver_t *hw_drv, int of_port,
 	stats->rx_crc_err = -1;
 	stats->collisions = -1;
 
-	nf2_free_net_device(dev);
+/* NetFPGA-10G port port information NOT available for now
 	free(nf2portinfo);
+*/
 	return 0;
 }
 
@@ -434,15 +414,9 @@ new_of_hw_driver(struct datapath *dp)
 {
 	struct sw_table *sw_tab;
 	of_hw_driver_t *hw_drv;
-	struct nf2device *dev;
 	struct nf2_flowtable *nf2flowtab;
 
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		return NULL;
-	}
-	nf2_reset_card(dev);
-	nf2_free_net_device(dev);
+//	nf2_reset_card();
 
 	nf2flowtab = calloc(1, sizeof(*nf2flowtab));
 	if (nf2flowtab == NULL) {

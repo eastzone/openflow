@@ -30,36 +30,11 @@
  * without specific, written prior permission.
  */
 
-#ifndef HWTABLE_NF2_NF2_LIB_H_
-#define HWTABLE_NF2_NF2_LIB_H_
+#ifndef NF10_REG_ACC_H_
+#define NF10_REG_ACC_H_
 
-/* Maximum number of interfaces */
-#ifndef MAX_IFACE
-#define MAX_IFACE       4
-#endif
-
-struct nf2_of_stats {
-        uint64_t pkt_count;
-        uint64_t byte_count;
-};
-int nf2_are_actions_supported(struct sw_flow *);
-void nf2_clear_of_exact(uint32_t);
-void nf2_clear_of_wildcard(uint32_t);
-int nf2_init_exact_freelist(void);
-int nf2_init_wildcard_freelist(void);
-void nf2_destroy_exact_freelist(void);
-void nf2_destroy_wildcard_freelist(void);
-int nf2_write_static_wildcard(void);
-void nf2_populate_of_entry(nf2_of_entry_wrap *, struct sw_flow *);
-void nf2_populate_of_mask(nf2_of_mask_wrap *, struct sw_flow *);
-void nf2_populate_of_action(nf2_of_action_wrap *, nf2_of_entry_wrap *,
-			    struct sw_flow *);
-void nf2_add_free_exact(struct nf2_flow *);
-void nf2_add_free_wildcard(struct nf2_flow *);
-int nf2_get_table_type(struct sw_flow *);
-int nf2_build_and_write_flow(struct sw_flow *);
-void nf2_delete_private(void *);
-int nf2_modify_acts(struct sw_flow *);
-struct nf2_of_stats *nf2_get_stats(struct nf2_flow *);
+/* Function prototypes. */
+unsigned int nf10_reg_rd(uint32_t);
+int nf10_reg_wr(uint32_t, uint32_t);
 
 #endif

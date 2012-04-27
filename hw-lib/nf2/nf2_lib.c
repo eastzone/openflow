@@ -38,8 +38,6 @@
 #include "udatapath/switch-flow.h"
 #include "udatapath/table.h"
 #include "reg_defines_openflow_switch.h"
-#include "nf2.h"
-#include "nf2util.h"
 #include "hw_flow.h"
 #include "nf2_drv.h"
 #include "nf2_lib.h"
@@ -78,42 +76,6 @@ static void populate_action_strip_vlan(nf2_of_action_wrap *);
 int iface_chk_done = 0;
 int net_iface = 0;
 
-struct nf2device *
-nf2_get_net_device(void)
-{
-	struct nf2device *dev;
-        dev = calloc(1, sizeof(struct nf2device));
-        dev->device_name = DEFAULT_IFACE;
-
-	if (iface_chk_done) {
-		dev->net_iface = net_iface;
-	} else {
-		if (check_iface(dev)) {
-			iface_chk_done = 0;
-			return NULL;
-		} else {
-			iface_chk_done = 1;
-			net_iface = dev->net_iface;
-		}
-	}
-
-        if (openDescriptor(dev)) {
-                return NULL;
-        }
-        return dev;
-}
-
-void
-nf2_free_net_device(struct nf2device *dev)
-{
-	if (dev == NULL){
-		return;
-	}
-
-        closeDescriptor(dev);
-	free(dev);
-}
-
 /* Checks to see if the actions requested by the flow are capable of being
  * done in the NF2 hardware. Returns 1 if yes, 0 for no.
  */
@@ -134,9 +96,9 @@ nf2_are_actions_supported(struct sw_flow *flow)
 		size_t len = ntohs(ah->len);
 
 		DBG_VERBOSE("Action Support Chk: Len of this action: %i\n",
-			    len);
+			    (unsigned int)len);
 		DBG_VERBOSE("Action Support Chk: Len of actions    : %i\n",
-			    actions_len);
+			    (unsigned int)actions_len);
 
 		// All the modify actions are supported.
 		// Each of them can be specified once otherwise overwritten.
@@ -187,18 +149,11 @@ nf2_clear_of_exact(uint32_t pos)
 {
 	nf2_of_entry_wrap entry;
 	nf2_of_action_wrap action;
-	struct nf2device *dev = NULL;
 
 	memset(&entry, 0, sizeof(nf2_of_entry_wrap));
 	memset(&action, 0, sizeof(nf2_of_action_wrap));
 
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		DBG_ERROR("Could not open NetFPGA device\n");
-		return;
-	}
-	nf2_write_of_exact(dev, pos, &entry, &action);
-	nf2_free_net_device(dev);
+	nf2_write_of_exact(pos, &entry, &action);
 }
 
 /*
@@ -210,19 +165,12 @@ nf2_clear_of_wildcard(uint32_t pos)
 	nf2_of_entry_wrap entry;
 	nf2_of_mask_wrap mask;
 	nf2_of_action_wrap action;
-	struct nf2device *dev = NULL;
 
 	memset(&entry, 0, sizeof(nf2_of_entry_wrap));
 	memset(&mask, 0, sizeof(nf2_of_mask_wrap));
 	memset(&action, 0, sizeof(nf2_of_action_wrap));
 
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		DBG_ERROR("Could not open NetFPGA device\n");
-		return;
-	}
-	nf2_write_of_wildcard(dev, pos, &entry, &mask, &action);
-	nf2_free_net_device(dev);
+	nf2_write_of_wildcard(pos, &entry, &mask, &action);
 }
 
 int
@@ -306,11 +254,6 @@ nf2_write_static_wildcard(void)
 	nf2_of_mask_wrap mask;
 	nf2_of_action_wrap action;
 	int i;
-	struct nf2device *dev;
-
-	dev = nf2_get_net_device();
-	if (dev == NULL)
-		return 1;
 
 	memset(&entry, 0x00, sizeof(nf2_of_entry_wrap));
 	memset(&mask, 0xFF, sizeof(nf2_of_mask_wrap));
@@ -320,21 +263,20 @@ nf2_write_static_wildcard(void)
 
 	// write the catch all entries to send to the cpu
 	for (i = 0; i < 4; ++i) {
-		entry.entry.src_port = i * 2;
-		action.action.forward_bitmask = 0x1 << ((i * 2) + 1);
-		nf2_write_of_wildcard(dev, (OPENFLOW_WILDCARD_TABLE_SIZE - 4)
+		entry.entry.src_port = 0x1 << (i + 1);
+		action.action.forward_bitmask = 0x1 << ((i + 1) + 4);
+		nf2_write_of_wildcard((OPENFLOW_WILDCARD_TABLE_SIZE - 4)
 				      + i, &entry, &mask, &action);
 	}
 
 	// write the entries to send out packets coming from the cpu
 	for (i = 0; i < 4; ++i) {
-		entry.entry.src_port = (i * 2) + 1;
-		action.action.forward_bitmask = 0x1 << (i * 2);
-		nf2_write_of_wildcard(dev, (OPENFLOW_WILDCARD_TABLE_SIZE - 8)
+		entry.entry.src_port = 0x1 << ((i + 1) + 4);
+		action.action.forward_bitmask = 0x1 << (i + 1);
+		nf2_write_of_wildcard((OPENFLOW_WILDCARD_TABLE_SIZE - 8)
 				      + i, &entry, &mask, &action);
 	}
 
-	nf2_free_net_device(dev);
 	return 0;
 }
 
@@ -359,7 +301,7 @@ nf2_populate_of_entry(nf2_of_entry_wrap *key, struct sw_flow *flow)
 	for (i = 0; i < 6; ++i) {
 		key->entry.eth_src[i] = flow->key.flow.dl_src[5 - i];
 	}
-	key->entry.src_port = (ntohs(flow->key.flow.in_port) - PORT_BASE) * 2;
+	key->entry.src_port = 0x1 << ((ntohs(flow->key.flow.in_port) - PORT_BASE) + 1);
 	key->entry.ip_tos = TOS_BITMASK & flow->key.flow.nw_tos;
 	if (ntohs(flow->key.flow.dl_vlan) == 0xffff) {
 		key->entry.vlan_id = 0xffff;
@@ -449,17 +391,17 @@ populate_action_output(nf2_of_action_wrap *action, nf2_of_entry_wrap *entry,
 	} else if (port == OFPP_IN_PORT) {
 		// Send out to input port
 		action->action.forward_bitmask
-			|= (1 << (entry->entry.src_port));
+			|= (entry->entry.src_port);
 		DBG_VERBOSE("Output Port = Input Port  Forward Bitmask: %x\n",
 			    action->action.forward_bitmask);
 	} else if (port == OFPP_ALL || port == OFPP_FLOOD) {
 		// Send out all ports except the source
 		for (i = 0; i < 4; ++i) {
-			if ((i * 2) != entry->entry.src_port) {
+			if (entry->entry.src_port != (0x1 << (i + 1))) {
 				// Bitmask for output port(s), evens are
 				// phys odds cpu
 				action->action.forward_bitmask
-					|= (1 << (i * 2));
+					|= (0x1 << (i + 1));
 				DBG_VERBOSE
 					("Output Port: %i Forward Bitmask: %x\n",
 					 port, action->action.forward_bitmask);
@@ -575,9 +517,10 @@ nf2_populate_of_action(nf2_of_action_wrap *action, nf2_of_entry_wrap *entry,
 		struct ofp_action_header *acth = (struct ofp_action_header *)p;
 		size_t len = ntohs(acth->len);
 
-		DBG_VERBOSE("Action Populate: Len of this action: %i\n", len);
+		DBG_VERBOSE("Action Populate: Len of this action: %i\n",
+                	    (unsigned int)len);
 		DBG_VERBOSE("Action Populate: Len of actions    : %i\n",
-			    actions_len);
+			    (unsigned int)actions_len);
 
 		if (acth->type == htons(OFPAT_OUTPUT)) {
 			populate_action_output(action, entry, p);
@@ -730,9 +673,10 @@ is_action_forward_all(struct sw_flow *flow)
 			    ntohs(ah->type));
 		DBG_VERBOSE("Fwd Action Chk: Output port: %x\n",
 			    ntohs(oa->port));
-		DBG_VERBOSE("Fwd Action Chk: Len of this action: %i\n", len);
-		DBG_VERBOSE("Fwd Action Chk: Len of actions    : %i\n",
-			    actions_len);
+		DBG_VERBOSE("Fwd Action Chk: Len of this action: %d\n",
+			    (unsigned int)len);
+		DBG_VERBOSE("Fwd Action Chk: Len of actions    : %d\n",
+			    (unsigned int)actions_len);
 		// Currently only support the output port(s) action
 		if (ntohs(ah->type) == OFPAT_OUTPUT
 		    && (ntohs(oa->port) == OFPP_ALL
@@ -754,7 +698,6 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 {
 	struct nf2_flow *sfw = NULL;
 	struct nf2_flow *sfw_next = NULL;
-	struct nf2device *dev;
 	int num_entries = 0;
 	int i, table_type;
 	nf2_of_entry_wrap key;
@@ -764,11 +707,6 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 	memset(&key, 0, sizeof(nf2_of_entry_wrap));
 	memset(&mask, 0, sizeof(nf2_of_mask_wrap));
 	memset(&action, 0, sizeof(nf2_of_action_wrap));
-
-	dev = nf2_get_net_device();
-	if (dev == NULL) {
-		return 1;
-	}
 
 	table_type = nf2_get_table_type(flow);
 	switch (table_type) {
@@ -784,12 +722,11 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 			DBG_VERBOSE
 				("Collision getting free exact match entry\n");
 			// collision
-			nf2_free_net_device(dev);
 			return 1;
 		}
 		// set the active bit on this entry
 		key.entry.pad = 0x80;
-		nf2_write_of_exact(dev, sfw->pos, &key, &action);
+		nf2_write_of_exact(sfw->pos, &key, &action);
 		flow->private = (void *)sfw;
 		break;
 
@@ -802,7 +739,6 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 			if (!(sfw = get_free_wildcard())) {
 				DBG_VERBOSE("No free wildcard entries found.");
 				// no free entries
-				nf2_free_net_device(dev);
 				return 1;
 			}
 			// try to get 3 more positions
@@ -817,18 +753,17 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 			if (num_entries < 3) {
 				// failed to get enough entries, return them and exit
 				nf2_delete_private((void *)sfw);
-				nf2_free_net_device(dev);
 				return 1;
 			}
 
 			nf2_populate_of_entry(&key, flow);
 			nf2_populate_of_mask(&mask, flow);
 
-			// set first entry's src port to 0, remove wildcard mask on src
-			key.entry.src_port = 0;
+			// set first entry's src port, remove wildcard mask on src
+			key.entry.src_port = 0x1 << 1;
 			mask.entry.src_port = 0;
 			nf2_populate_of_action(&action, &key, flow);
-			nf2_write_of_wildcard(dev, sfw->pos, &key, &mask,
+			nf2_write_of_wildcard(sfw->pos, &key, &mask,
 					      &action);
 
 			i = 1;
@@ -836,9 +771,9 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 					      struct nf2_flow, node);
 			// walk through and write the remaining 3 entries
 			while (sfw_next != sfw) {
-				key.entry.src_port = i * 2;
+				key.entry.src_port = 0x1 << (i + 1);
 				nf2_populate_of_action(&action, &key, flow);
-				nf2_write_of_wildcard(dev, sfw_next->pos, &key,
+				nf2_write_of_wildcard(sfw_next->pos, &key,
 						      &mask, &action);
 				sfw_next = CONTAINER_OF(list_front(&sfw_next->node),
 						      struct nf2_flow, node);
@@ -852,12 +787,11 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 				nf2_populate_of_mask(&mask, flow);
 				nf2_populate_of_action(&action, &key, flow);
 				if (nf2_write_of_wildcard
-				    (dev, sfw->pos, &key, &mask, &action)) {
+				    (sfw->pos, &key, &mask, &action)) {
 					// failure writing to hardware
 					nf2_add_free_wildcard(sfw);
 					DBG_VERBOSE
 						("Failure writing to hardware\n");
-					nf2_free_net_device(dev);
 					return 1;
 				} else {
 					// success writing to hardware, store the position
@@ -866,14 +800,12 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 			} else {
 				// hardware is full, return 0
 				DBG_VERBOSE("No free wildcard entries found.");
-				nf2_free_net_device(dev);
 				return 1;
 			}
 		}
 		break;
 	}
 
-	nf2_free_net_device(dev);
 	return 0;
 }
 
@@ -916,7 +848,6 @@ int
 nf2_modify_acts(struct sw_flow *flow)
 {
 	struct nf2_flow *sfw = (struct nf2_flow *)flow->private;
-	struct nf2device *dev;
 	nf2_of_entry_wrap key;
 	nf2_of_mask_wrap mask;
 	nf2_of_action_wrap action;
@@ -924,10 +855,6 @@ nf2_modify_acts(struct sw_flow *flow)
 	memset(&key, 0, sizeof(nf2_of_entry_wrap));
 	memset(&mask, 0, sizeof(nf2_of_mask_wrap));
 	memset(&action, 0, sizeof(nf2_of_action_wrap));
-
-	dev = nf2_get_net_device();
-	if (dev == NULL)
-		return 0;
 
 	switch (sfw->type) {
 	default:
@@ -937,59 +864,102 @@ nf2_modify_acts(struct sw_flow *flow)
 		nf2_populate_of_entry(&key, flow);
 		nf2_populate_of_action(&action, &key, flow);
 		key.entry.pad = 0x80;
-		nf2_modify_write_of_exact(dev, sfw->pos, &action);
+		nf2_modify_write_of_exact(sfw->pos, &key, &action);
 		break;
 
 	case NF2_TABLE_WILDCARD:
 		if (flow->key.wildcards & OFPFW_IN_PORT) {
-			nf2_free_net_device(dev);
 			return 0;
 		}
 		nf2_populate_of_entry(&key, flow);
 		nf2_populate_of_mask(&mask, flow);
 		nf2_populate_of_action(&action, &key, flow);
-		nf2_modify_write_of_wildcard(dev, sfw->pos,
+		nf2_modify_write_of_wildcard(sfw->pos,
 					     &key, &mask, &action);
 		break;
 	}
 
-	nf2_free_net_device(dev);
 	return 1;
 }
 
-uint64_t
-nf2_get_packet_count(struct nf2device *dev, struct nf2_flow *sfw)
+struct nf2_of_stats *
+nf2_get_stats(struct nf2_flow *sfw)
 {
-	uint32_t count = 0;
-	uint32_t hw_count = 0;
-	uint64_t total = 0;
-	struct nf2_flow *sfw_next = NULL;
+        nf2_of_counters_wrap counters;
+        struct nf2_of_stats *stats = NULL;
+        uint32_t diff_pkt_count = 0;
+        uint32_t diff_byte_count = 0;
+        uint64_t total_pkt_count = 0;
+        uint64_t total_byte_count = 0;
+        struct nf2_flow *sfw_next = NULL;
 
 	switch (sfw->type) {
 	default:
 		break;
 
+        memset(&counters, 0, sizeof(nf2_of_counters_wrap));
+        memset(stats, 0, sizeof(struct nf2_of_stats));
+
 	case NF2_TABLE_EXACT:
-		// Get delta value
-		total = nf2_get_exact_packet_count(dev, sfw->pos);
+		// Get sum value
+                nf2_get_raw_stats(sfw->pos, true, &counters);
+		if (counters.counters.pkt_count >= sfw->hw_packet_count) {
+			diff_pkt_count = counters.counters.pkt_count
+				- sfw->hw_packet_count;
+			sfw->hw_packet_count = counters.counters.pkt_count;
+		} else {
+			// wrapping occurred
+			diff_pkt_count = 
+				(MAX_INT_32 - sfw->hw_packet_count)
+				+ counters.counters.pkt_count;
+			sfw->hw_packet_count = counters.counters.pkt_count;
+		}
+		total_pkt_count += diff_pkt_count;
+
+		if (counters.counters.byte_count >= sfw->hw_byte_count) {
+			diff_byte_count = counters.counters.byte_count
+					- sfw->hw_byte_count;
+			sfw_next->hw_byte_count = counters.counters.byte_count;
+		} else {
+			// wrapping occurred
+			diff_byte_count =
+				(MAX_INT_32 - sfw->hw_byte_count)
+				+ counters.counters.byte_count;
+			sfw->hw_byte_count = counters.counters.byte_count;
+		}
+		total_byte_count += diff_byte_count;
 		break;
 
 	case NF2_TABLE_WILDCARD:
 		sfw_next = sfw;
 		do {
 			// Get sum value
-			hw_count = nf2_get_wildcard_packet_count(dev,
-								 sfw_next->pos);
-			if (hw_count >= sfw_next->hw_packet_count) {
-				count = hw_count - sfw_next->hw_packet_count;
-				sfw_next->hw_packet_count = hw_count;
+			nf2_get_raw_stats(sfw_next->pos, false, &counters);
+			if (counters.counters.pkt_count >= sfw_next->hw_packet_count) {
+				diff_pkt_count = counters.counters.pkt_count
+                                                - sfw_next->hw_packet_count;
+				sfw_next->hw_packet_count = counters.counters.pkt_count;
 			} else {
 				// wrapping occurred
-				count = (MAX_INT_32 - sfw_next->hw_packet_count)
-					+ hw_count;
-				sfw_next->hw_packet_count = hw_count;
+				diff_pkt_count = 
+					(MAX_INT_32 - sfw_next->hw_packet_count)
+					+ counters.counters.pkt_count;
+				sfw_next->hw_packet_count = counters.counters.pkt_count;
 			}
-			total += count;
+			total_pkt_count += diff_pkt_count;
+
+			if (counters.counters.byte_count >= sfw_next->hw_byte_count) {
+				diff_byte_count = counters.counters.byte_count
+						- sfw_next->hw_byte_count;
+				sfw_next->hw_byte_count = counters.counters.byte_count;
+			} else {
+				// wrapping occurred
+				diff_byte_count =
+					(MAX_INT_32 - sfw_next->hw_byte_count)
+					+ counters.counters.byte_count;
+				sfw_next->hw_byte_count = counters.counters.byte_count;
+			}
+			total_byte_count += diff_byte_count;
 
 			if(!list_is_empty(&sfw_next->node)){
 				sfw_next = CONTAINER_OF(list_front(&sfw_next->node),
@@ -998,52 +968,7 @@ nf2_get_packet_count(struct nf2device *dev, struct nf2_flow *sfw)
 		} while (sfw_next != sfw);
 		break;
 	}
-
-	return total;
-}
-
-uint64_t
-nf2_get_byte_count(struct nf2device *dev, struct nf2_flow *sfw)
-{
-	uint32_t count = 0;
-	uint32_t hw_count = 0;
-	uint64_t total = 0;
-	struct nf2_flow *sfw_next = NULL;
-
-	switch (sfw->type) {
-	default:
-		break;
-
-	case NF2_TABLE_EXACT:
-		// Get delta value
-		total = nf2_get_exact_byte_count(dev, sfw->pos);
-		break;
-
-	case NF2_TABLE_WILDCARD:
-		sfw_next = sfw;
-		do {
-			// Get sum value
-			hw_count = nf2_get_wildcard_byte_count(dev,
-							       sfw_next->pos);
-			if (hw_count >= sfw_next->hw_byte_count) {
-				count = hw_count - sfw_next->hw_byte_count;
-				sfw_next->hw_byte_count = hw_count;
-			} else {
-				// wrapping occurred
-				count = (MAX_INT_32 - sfw_next->hw_byte_count)
-					+ hw_count;
-				sfw_next->hw_byte_count = hw_count;
-			}
-
-			total += count;
-
-			if(!list_is_empty(&sfw_next->node)) {
-				sfw_next = CONTAINER_OF(list_front(&sfw_next->node),
-						      struct nf2_flow, node);
-			}
-		} while (sfw_next != sfw);
-		break;
-	}
-
-	return total;
+        stats->pkt_count = total_pkt_count;
+        stats->byte_count = total_byte_count;
+	return stats; 
 }
