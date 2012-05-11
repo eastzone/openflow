@@ -269,12 +269,15 @@ sub setup_user {
 
     print "about to create ofdatapath` punix:/var/run/test -i $if_string \& \n";
     system("${openflow_dir}/udatapath/ofdatapath punix:/var/run/test -i $if_string \&");
+    sleep (1);
 
     start_ofprotocol("unix:/var/run/test", @_);
+    sleep (1);
 
     #create a queue in each port
     for ($i = 1;$i <= 4; $i++) {
         system("${openflow_dir}/utilities/dpctl add-queue unix:/var/run/test $i 1 10");
+    sleep (1);
     }
 
 
