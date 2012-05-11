@@ -16,6 +16,7 @@
 .deps
 .libs
 .tmp_versions
+.dirstamp
 /Makefile
 /Makefile.in
 /aclocal.m4
