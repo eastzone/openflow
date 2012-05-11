@@ -100,24 +100,27 @@ nf2_are_actions_supported(struct sw_flow *flow)
 		DBG_VERBOSE("Action Support Chk: Len of actions    : %i\n",
 			    (unsigned int)actions_len);
 
-		// All the modify actions are supported.
+		// All the modify actions will eventually be supported
+		// but the initial version supports only output action.
+
 		// Each of them can be specified once otherwise overwritten.
 		// Output action happens last.
 		if (!(ntohs(ah->type) == OFPAT_OUTPUT
-		      || ntohs(ah->type) == OFPAT_SET_DL_SRC
-		      || ntohs(ah->type) == OFPAT_SET_DL_DST
+		//      || ntohs(ah->type) == OFPAT_SET_DL_SRC
+		//      || ntohs(ah->type) == OFPAT_SET_DL_DST
 
-		      || ntohs(ah->type) == OFPAT_SET_NW_SRC
-		      || ntohs(ah->type) == OFPAT_SET_NW_DST
+		//      || ntohs(ah->type) == OFPAT_SET_NW_SRC
+		//      || ntohs(ah->type) == OFPAT_SET_NW_DST
 
-		      || ntohs(ah->type) == OFPAT_SET_NW_TOS
+		//      || ntohs(ah->type) == OFPAT_SET_NW_TOS
 
-		      || ntohs(ah->type) == OFPAT_SET_TP_SRC
-		      || ntohs(ah->type) == OFPAT_SET_TP_DST
+		//      || ntohs(ah->type) == OFPAT_SET_TP_SRC
+		//      || ntohs(ah->type) == OFPAT_SET_TP_DST
 
-		      || ntohs(ah->type) == OFPAT_SET_VLAN_VID
-		      || ntohs(ah->type) == OFPAT_SET_VLAN_PCP
-		      || ntohs(ah->type) == OFPAT_STRIP_VLAN)) {
+		//      || ntohs(ah->type) == OFPAT_SET_VLAN_VID
+		//      || ntohs(ah->type) == OFPAT_SET_VLAN_PCP
+		//      || ntohs(ah->type) == OFPAT_STRIP_VLAN
+		)) {
 			DBG_VERBOSE
 				("Flow action type %#0x not supported in hardware\n",
 				 ntohs(ah->type));
@@ -882,23 +885,21 @@ nf2_modify_acts(struct sw_flow *flow)
 	return 1;
 }
 
-struct nf2_of_stats *
-nf2_get_stats(struct nf2_flow *sfw)
+int
+nf2_get_stats(struct nf2_flow *sfw, struct nf2_of_stats *stats)
 {
         nf2_of_counters_wrap counters;
-        struct nf2_of_stats *stats = NULL;
         uint32_t diff_pkt_count = 0;
         uint32_t diff_byte_count = 0;
         uint64_t total_pkt_count = 0;
         uint64_t total_byte_count = 0;
-        struct nf2_flow *sfw_next = NULL;
+        struct nf2_flow *sfw_next = calloc(1, sizeof *sfw_next);
+
+        memset(&counters, 0, sizeof(nf2_of_counters_wrap));
 
 	switch (sfw->type) {
 	default:
 		break;
-
-        memset(&counters, 0, sizeof(nf2_of_counters_wrap));
-        memset(stats, 0, sizeof(struct nf2_of_stats));
 
 	case NF2_TABLE_EXACT:
 		// Get sum value
@@ -919,7 +920,7 @@ nf2_get_stats(struct nf2_flow *sfw)
 		if (counters.counters.byte_count >= sfw->hw_byte_count) {
 			diff_byte_count = counters.counters.byte_count
 					- sfw->hw_byte_count;
-			sfw_next->hw_byte_count = counters.counters.byte_count;
+			sfw->hw_byte_count = counters.counters.byte_count;
 		} else {
 			// wrapping occurred
 			diff_byte_count =
@@ -970,5 +971,5 @@ nf2_get_stats(struct nf2_flow *sfw)
 	}
         stats->pkt_count = total_pkt_count;
         stats->byte_count = total_byte_count;
-	return stats; 
+	return 0; 
 }

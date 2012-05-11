@@ -386,7 +386,7 @@ nf2_write_of_wildcard(int row,
 	log_action_raw(action);
 
 	if (nf2_chk_acc_rdy()) {
-		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		DBG_ERROR("Write Wildcard: Access timeout: NetFPGA is busy\n");
 		return 1;
 	}
 
@@ -434,7 +434,7 @@ nf2_write_of_exact(int row,
 	log_action_raw(action);
 
 	if (nf2_chk_acc_rdy()) {
-		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		DBG_ERROR("Write Exact: Access timeout: NetFPGA is busy\n");
 		return 1;
 	}
 
@@ -480,7 +480,7 @@ nf2_modify_write_of_wildcard(int row,
 	log_action_raw(action);
 
 	if (nf2_chk_acc_rdy()) {
-		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		DBG_ERROR("Modify Wildcard: Access timeout: NetFPGA is busy\n");
 		return 1;
 	}
 
@@ -522,7 +522,7 @@ nf2_modify_write_of_exact(int row,
 	log_action_raw(action);
 
 	if (nf2_chk_acc_rdy()) {
-		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		DBG_ERROR("Modify Exact: Access timeout: NetFPGA is busy\n");
 		return 1;
 	}
 
@@ -553,8 +553,11 @@ nf2_get_raw_stats(int row, int is_exact, nf2_of_counters_wrap *counters)
 
 	DBG_VERBOSE("** Begin getting statistics from row: %i\n", row);
 
+        counters->raw[0] = 0;
+        counters->raw[1] = 0;
+
 	if (nf2_chk_acc_rdy()) {
-		DBG_ERROR("Access timeout: NetFPGA is busy\n");
+		DBG_ERROR("Get Stats: Access timeout: NetFPGA is busy\n");
 		return 1;
 	}
 
@@ -566,7 +569,7 @@ nf2_get_raw_stats(int row, int is_exact, nf2_of_counters_wrap *counters)
 	nf10_reg_wr(OF_READ_ORDER_REG, 1); // Write whatever the value
 
 	if (nf2_chk_acc_rdy()) {
-		DBG_ERROR("Read timeout: NetFPGA is busy\n");
+		DBG_ERROR("Get Stats: Read timeout: NetFPGA is busy\n");
 		return 1;
 	}
 

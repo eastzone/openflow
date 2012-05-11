@@ -60,6 +60,6 @@ int nf2_get_table_type(struct sw_flow *);
 int nf2_build_and_write_flow(struct sw_flow *);
 void nf2_delete_private(void *);
 int nf2_modify_acts(struct sw_flow *);
-struct nf2_of_stats *nf2_get_stats(struct nf2_flow *);
+int nf2_get_stats(struct nf2_flow *, struct nf2_of_stats *);
 
 #endif

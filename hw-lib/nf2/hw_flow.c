@@ -197,7 +197,7 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 	struct nf2_flowtable *nf2flowtab = (struct nf2_flowtable *)flowtab;
 	struct sw_flow *flow, *n;
 	struct nf2_flow *nf2flow;
-	struct nf2_of_stats *stats;
+	struct nf2_of_stats *stats = calloc(1, sizeof *stats);
 	unsigned int count = 0;
 	struct list deleted;
 	list_init(&deleted);
@@ -209,7 +209,7 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 			nf2flow = flow->private;
 
 			if (nf2flow != NULL) {
-				stats = nf2_get_stats(nf2flow);
+				nf2_get_stats(nf2flow, stats);
 				flow->packet_count
 					+= stats->pkt_count;
 				flow->byte_count += stats->byte_count;
@@ -233,6 +233,8 @@ nf2_uninstall_flow(struct datapath *dpinst, struct sw_table *flowtab,
 			}
 	}
 
+        free(stats);
+
 	return count;
 }
 
@@ -242,7 +244,7 @@ nf2_flow_timeout(struct sw_table *flowtab, struct list *deleted)
 	struct nf2_flowtable *nf2flowtab = (struct nf2_flowtable *)flowtab;
 	struct sw_flow *flow, *n;
 	struct nf2_flow *nf2flow;
-	struct nf2_of_stats *stats;
+	struct nf2_of_stats *stats = calloc(1, sizeof *stats);
 	int num_uninst_flows = 0;
 	uint64_t num_forw_packets = 0;
 	uint64_t now = time_msec();
@@ -252,7 +254,7 @@ nf2_flow_timeout(struct sw_table *flowtab, struct list *deleted)
 	LIST_FOR_EACH_SAFE (flow, n, struct sw_flow, node, &nf2flowtab->flows) {
 		nf2flow = flow->private;
 		if (nf2flow != NULL) {
-                        stats = nf2_get_stats(nf2flow);
+                        nf2_get_stats(nf2flow, stats);
 			num_forw_packets = flow->packet_count
 				+ stats->pkt_count;
 			flow->byte_count += stats->byte_count;
@@ -271,6 +273,7 @@ nf2_flow_timeout(struct sw_table *flowtab, struct list *deleted)
 	/* UNLOCK; */
 
 	nf2flowtab->num_flows -= num_uninst_flows;
+        free(stats);
 }
 
 static void
