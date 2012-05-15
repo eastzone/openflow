@@ -304,7 +304,7 @@ nf2_populate_of_entry(nf2_of_entry_wrap *key, struct sw_flow *flow)
 	for (i = 0; i < 6; ++i) {
 		key->entry.eth_src[i] = flow->key.flow.dl_src[5 - i];
 	}
-	key->entry.src_port = 0x1 << ((ntohs(flow->key.flow.in_port) - PORT_BASE) + 1);
+	key->entry.src_port = 0x1 << ((ntohs(flow->key.flow.in_port) - PORT_BASE) * 2);
 	key->entry.ip_tos = TOS_BITMASK & flow->key.flow.nw_tos;
 	if (ntohs(flow->key.flow.dl_vlan) == 0xffff) {
 		key->entry.vlan_id = 0xffff;
