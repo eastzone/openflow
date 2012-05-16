@@ -266,16 +266,16 @@ nf2_write_static_wildcard(void)
 
 	// write the catch all entries to send to the cpu
 	for (i = 0; i < 4; ++i) {
-		entry.entry.src_port = 0x1 << (i + 1);
-		action.action.forward_bitmask = 0x1 << ((i + 1) + 4);
+		entry.entry.src_port = 0x1 << (i * 2);
+		action.action.forward_bitmask = 0x1 << ((i * 2) + 1);
 		nf2_write_of_wildcard((OPENFLOW_WILDCARD_TABLE_SIZE - 4)
 				      + i, &entry, &mask, &action);
 	}
 
 	// write the entries to send out packets coming from the cpu
 	for (i = 0; i < 4; ++i) {
-		entry.entry.src_port = 0x1 << ((i + 1) + 4);
-		action.action.forward_bitmask = 0x1 << (i + 1);
+		entry.entry.src_port = 0x1 << ((i * 2) + 1);
+		action.action.forward_bitmask = 0x1 << (i * 2);
 		nf2_write_of_wildcard((OPENFLOW_WILDCARD_TABLE_SIZE - 8)
 				      + i, &entry, &mask, &action);
 	}
@@ -400,11 +400,11 @@ populate_action_output(nf2_of_action_wrap *action, nf2_of_entry_wrap *entry,
 	} else if (port == OFPP_ALL || port == OFPP_FLOOD) {
 		// Send out all ports except the source
 		for (i = 0; i < 4; ++i) {
-			if (entry->entry.src_port != (0x1 << (i + 1))) {
+			if (entry->entry.src_port != (0x1 << (i * 2))) {
 				// Bitmask for output port(s), evens are
 				// phys odds cpu
 				action->action.forward_bitmask
-					|= (0x1 << (i + 1));
+					|= (0x1 << (i * 2));
 				DBG_VERBOSE
 					("Output Port: %i Forward Bitmask: %x\n",
 					 port, action->action.forward_bitmask);
@@ -763,7 +763,7 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 			nf2_populate_of_mask(&mask, flow);
 
 			// set first entry's src port, remove wildcard mask on src
-			key.entry.src_port = 0x1 << 1;
+			key.entry.src_port = 0x1 << 0;
 			mask.entry.src_port = 0;
 			nf2_populate_of_action(&action, &key, flow);
 			nf2_write_of_wildcard(sfw->pos, &key, &mask,
@@ -774,7 +774,7 @@ nf2_build_and_write_flow(struct sw_flow *flow)
 					      struct nf2_flow, node);
 			// walk through and write the remaining 3 entries
 			while (sfw_next != sfw) {
-				key.entry.src_port = 0x1 << (i + 1);
+				key.entry.src_port = 0x1 << (i * 2);
 				nf2_populate_of_action(&action, &key, flow);
 				nf2_write_of_wildcard(sfw_next->pos, &key,
 						      &mask, &action);
