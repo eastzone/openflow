@@ -594,7 +594,7 @@ get_free_exact(nf2_of_entry_wrap *entry)
 	hash = crc32_calculate(&crc, entry, sizeof(nf2_of_entry_wrap));
 
 	// the bottom 15 bits of hash == the index into the table
-	index = 0x7FFF & hash;
+	index = (OPENFLOW_NF2_EXACT_TABLE_SIZE-1) & hash;
 
 	// if this index is free, grab it
 	sfw = exact_free_list[index];
@@ -607,7 +607,7 @@ get_free_exact(nf2_of_entry_wrap *entry)
 	crc32_init(&crc, poly2);
 	hash = crc32_calculate(&crc, entry, sizeof(nf2_of_entry_wrap));
 	// the bottom 15 bits of hash == the index into the table
-	index = 0x7FFF & hash;
+	index = (OPENFLOW_NF2_EXACT_TABLE_SIZE-1) & hash;
 
 	// if this index is free, grab it
 	sfw = exact_free_list[index];
