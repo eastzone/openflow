@@ -4,6 +4,7 @@
  * Project: OpenFlow Switch (openflow_switch)
  * Description: OpenFlow Switch
  *
+ * NOTE: This header file has been MANUALLY created
  ********************************************************/
 
 #ifndef _REG_DEFINES_OPENFLOW_SWITCH_
@@ -151,7 +152,6 @@
 
 // Name: openflow_datapath(OF)
 // Description: openflow_datapath
-// File: projects/openflow_switch/hw/include/openflow_datapath.xml
 #define OF_NUM_PKTS_DROPPED_0_REG                0x7a018000
 #define OF_NUM_PKTS_DROPPED_1_REG                0x7a018001
 #define OF_NUM_PKTS_DROPPED_2_REG                0x7a018002

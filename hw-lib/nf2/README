@@ -1,11 +1,10 @@
-NetFPGA Hardware Table
-  Date - 03/09/10
+NetFPGA-10G Hardware Table
 ----------------------------------------
 
 This library creates and maintains a single software table that contains all
 the flows that are currently held in the NetFPGA card. The card itself splits
-exact match flows into SRAM and wildcard match flows into TCAMs. Currently
-there are 24 usable wildcard flow entries and 1,024 available exact match
+exact match flows into BRAM(currently) and wildcard match flows into TCAMs.
+Currently there are 24 usable wildcard flow entries and 1,024 available exact match
 entries. The exact match table is hashed so actual available entries will
 vary.
 
@@ -23,8 +22,8 @@ the OpenFlow root directory.
 Platform support
 ----------------
 
-OpenFlow v1.0 with NetFPGA hardware table has been tested on FedoraXX
-which is the officially supported platform of NetFPGA.
+OpenFlow v1.0 with NetFPGA-10G hardware table has been tested on Fedora14
+which is the officially supported platform of NetFPGA-10G.
 
 Running
 ----------------------------------------
@@ -42,17 +41,14 @@ switch can detect it.
 
 Run ofdatapth with indicating *all* the NetFPGA interfaces:
 
-	% <openflow>/udatapath/ofdatapath punix:/var/run/test \
-	   -i nf0,nf1,nf2,nf3
+	% ofdatapath punix:/var/run/test -i nf0,nf1,nf2,nf3
+
+Run ofprotocol:
+
+	% ofprotocol unix:/var/run/test tcp:(your controller address and port)
 
 At this point your OpenFlow switch should be ready to go.
-The way you start up ofprotocol is as same as you do for software reference
-switch.
-
-Known Issues
-----------------------------------------
-* There is currently no support for priority amongst wildcard-match entries.
 
 Contact
 -------
-e-mail: openflow-discuss@lists.stanford.edu
+Post issues or questions to NetFPGA forum

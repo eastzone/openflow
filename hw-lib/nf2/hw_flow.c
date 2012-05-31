@@ -419,7 +419,11 @@ new_of_hw_driver(struct datapath *dp)
 	of_hw_driver_t *hw_drv;
 	struct nf2_flowtable *nf2flowtab;
 
-//	nf2_reset_card();
+/* NetFPGA-10G resetting NOT available for now.
+   You need to download the bitfile every time
+   you reset the software
+	nf2_reset_card();
+*/
 
 	nf2flowtab = calloc(1, sizeof(*nf2flowtab));
 	if (nf2flowtab == NULL) {

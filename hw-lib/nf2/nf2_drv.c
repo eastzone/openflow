@@ -615,6 +615,11 @@ nf2_get_missed_count(void)
 	return ((unsigned long int)(val_wild + val_exact));
 }
 
+
+/* Watchdog timer feature curently NOT implemented in
+   OpenFlow NetFPGA-10G hardware
+*/
+
 /*
 static void
 log_watchdog_info()

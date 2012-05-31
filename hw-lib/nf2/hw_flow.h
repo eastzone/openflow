@@ -48,6 +48,10 @@ enum nf2_of_table_type {
 	NF2_TABLE_WILDCARD
 };
 
+/* Watchdog timer feature curently NOT implemented in
+   OpenFlow NetFPGA-10G hardware
+ */
+
 /* Remove the commentout of the following 'define' line
  * if you want to enable NetFPGA watchdog timer capability.
  */
