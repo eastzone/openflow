@@ -69,8 +69,8 @@ static void populate_action_set_nw_dst(nf2_of_action_wrap *, uint8_t *);
 static void populate_action_set_tp_src(nf2_of_action_wrap *, uint8_t *);
 static void populate_action_set_tp_dst(nf2_of_action_wrap *, uint8_t *);
 static void populate_action_set_nw_tos(nf2_of_action_wrap *, uint8_t *);
-static void populate_action_set_vlan_vid(nf2_of_action_wrap *, uint8_t *);
-static void populate_action_set_vlan_pcp(nf2_of_action_wrap *, uint8_t *);
+static void populate_action_set_vlan_vid(nf2_of_action_wrap *, uint8_t *, uint16_t);
+static void populate_action_set_vlan_pcp(nf2_of_action_wrap *, uint8_t *, uint16_t);
 static void populate_action_strip_vlan(nf2_of_action_wrap *);
 
 int iface_chk_done = 0;
@@ -106,20 +106,20 @@ nf2_are_actions_supported(struct sw_flow *flow)
 		// Each of them can be specified once otherwise overwritten.
 		// Output action happens last.
 		if (!(ntohs(ah->type) == OFPAT_OUTPUT
-		//      || ntohs(ah->type) == OFPAT_SET_DL_SRC
-		//      || ntohs(ah->type) == OFPAT_SET_DL_DST
+		      || ntohs(ah->type) == OFPAT_SET_DL_SRC
+		      || ntohs(ah->type) == OFPAT_SET_DL_DST
 
-		//      || ntohs(ah->type) == OFPAT_SET_NW_SRC
-		//      || ntohs(ah->type) == OFPAT_SET_NW_DST
+		      || ntohs(ah->type) == OFPAT_SET_NW_SRC
+		      || ntohs(ah->type) == OFPAT_SET_NW_DST
 
-		//      || ntohs(ah->type) == OFPAT_SET_NW_TOS
+		      || ntohs(ah->type) == OFPAT_SET_NW_TOS
 
-		//      || ntohs(ah->type) == OFPAT_SET_TP_SRC
-		//      || ntohs(ah->type) == OFPAT_SET_TP_DST
+		      || ntohs(ah->type) == OFPAT_SET_TP_SRC
+		      || ntohs(ah->type) == OFPAT_SET_TP_DST
 
-		//      || ntohs(ah->type) == OFPAT_SET_VLAN_VID
-		//      || ntohs(ah->type) == OFPAT_SET_VLAN_PCP
-		//      || ntohs(ah->type) == OFPAT_STRIP_VLAN
+		      || ntohs(ah->type) == OFPAT_SET_VLAN_VID
+		      || ntohs(ah->type) == OFPAT_SET_VLAN_PCP
+		      || ntohs(ah->type) == OFPAT_STRIP_VLAN
 		)) {
 			DBG_VERBOSE
 				("Flow action type %#0x not supported in hardware\n",
@@ -478,19 +478,25 @@ populate_action_set_tp_dst(nf2_of_action_wrap *action, uint8_t *flowact)
 }
 
 static void
-populate_action_set_vlan_vid(nf2_of_action_wrap *action, uint8_t *flowact)
+populate_action_set_vlan_vid(nf2_of_action_wrap *action, uint8_t *flowact, uint16_t vlan_id)
 {
 	struct ofp_action_vlan_vid *actvlan = (struct ofp_action_vlan_vid *)flowact;
 	action->action.vlan_id = ntohs(actvlan->vlan_vid) & VID_BITMASK;
 	action->action.nf2_action_flag |= (1 << OFPAT_SET_VLAN_VID);
+	if (vlan_id == 0xffff) {
+		action->action.nf2_action_flag |= (1 << 12);  //PUSH_VLAN in OF1.1
+	}
 }
 
 static void
-populate_action_set_vlan_pcp(nf2_of_action_wrap *action, uint8_t *flowact)
+populate_action_set_vlan_pcp(nf2_of_action_wrap *action, uint8_t *flowact, uint16_t vlan_id)
 {
 	struct ofp_action_vlan_pcp *actvlan = (struct ofp_action_vlan_pcp *)flowact;
 	action->action.vlan_pcp = actvlan->vlan_pcp;
-	action->action.nf2_action_flag |= (1 << OFPAT_SET_VLAN_PCP);
+        action->action.nf2_action_flag |= (1 << OFPAT_SET_VLAN_PCP);
+	if (vlan_id == 0xffff) {
+		action->action.nf2_action_flag |= (1 << 12);  //PUSH_VLAN in OF1.1
+	}
 }
 
 static void
@@ -542,9 +548,9 @@ nf2_populate_of_action(nf2_of_action_wrap *action, nf2_of_entry_wrap *entry,
 		} else if (acth->type == htons(OFPAT_SET_TP_DST)) {
 			populate_action_set_tp_dst(action, p);
 		} else if (acth->type == htons(OFPAT_SET_VLAN_VID)) {
-			populate_action_set_vlan_vid(action, p);
+			populate_action_set_vlan_vid(action, p, entry->entry.vlan_id);
 		} else if (acth->type == htons(OFPAT_SET_VLAN_PCP)) {
-			populate_action_set_vlan_pcp(action, p);
+			populate_action_set_vlan_pcp(action, p, entry->entry.vlan_id);
 		} else if (acth->type == htons(OFPAT_STRIP_VLAN)) {
 			populate_action_strip_vlan(action);
 		}
